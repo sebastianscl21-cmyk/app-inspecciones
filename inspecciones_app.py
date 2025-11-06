@@ -1,125 +1,116 @@
 import streamlit as st
 from PIL import Image
-from fpdf import FPDF
-import io
-import tempfile
 from datetime import datetime
+from fpdf import FPDF
+import os
 
-st.set_page_config(page_title="App de Inspecciones", layout="centered")
+# Configuración de la página
+st.set_page_config(page_title="Inspecciones Técnicas", page_icon="🛠️", layout="centered")
 
-def init_state():
-    if 'findings' not in st.session_state:
-        st.session_state.findings = []
-    if 'machine' not in st.session_state:
-        st.session_state.machine = ''
-    if 'inspection_type' not in st.session_state:
-        st.session_state.inspection_type = 'Inspección mecánica'
+# Inicializar hallazgos en sesión
+if "findings" not in st.session_state:
+    st.session_state.findings = []
 
-def add_finding(image_bytes: bytes, description: str):
-    st.session_state.findings.append({
-        'image': image_bytes,
-        'description': description
-    })
+# Título
+st.title("📋 Registro de Inspección Técnica")
 
-def create_pdf(machine_name: str, inspection_type: str, findings: list) -> bytes:
-    pdf = FPDF(unit='mm', format='A4')
-    pdf.set_auto_page_break(auto=True, margin=15)
+# Selección del tipo de inspección
+inspection_type = st.selectbox("Tipo de inspección", ["Mecánica", "Eléctrica"])
 
-    pdf.add_page()
-    pdf.set_font('Arial', 'B', 16)
-    pdf.cell(0, 10, 'Informe de Inspección', ln=True, align='C')
-    pdf.ln(5)
-    pdf.set_font('Arial', '', 12)
-    pdf.cell(0, 8, f'Máquina: {machine_name}', ln=True)
-    pdf.cell(0, 8, f'Tipo de inspección: {inspection_type}', ln=True)
-    pdf.cell(0, 8, f'Fecha: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}', ln=True)
-    pdf.ln(8)
-    pdf.set_font('Arial', '', 11)
-    pdf.multi_cell(0, 6, f'Total de hallazgos: {len(findings)}')
+# Nombre o código de la máquina
+machine_id = st.text_input("Identificación de la máquina")
 
-    for idx, f in enumerate(findings, start=1):
-        img_bytes = f['image']
-        desc = f['description']
+st.divider()
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp:
-            tmp.write(img_bytes)
-            tmp.flush()
-            img_path = tmp.name
+# Subida de imagen
+uploaded_file = st.file_uploader("📸 Imagen del hallazgo", type=["jpg", "jpeg", "png"])
 
-        pdf.add_page()
-        pdf.set_font('Arial', 'B', 12)
-        pdf.cell(0, 8, f'Hallazgo {idx}', ln=True)
-        pdf.ln(3)
+# Descripción
+description = st.text_area("✍️ Descripción del hallazgo")
 
-        try:
-            pil_img = Image.open(io.BytesIO(img_bytes))
-            w_px, h_px = pil_img.size
-            available_w = 180
-            pdf.image(img_path, x=15, y=pdf.get_y(), w=available_w)
-            img_h_mm = (h_px / w_px) * available_w
-            pdf.ln(img_h_mm + 4)
-        except:
-            pdf.set_font('Arial', 'I', 10)
-            pdf.multi_cell(0, 6, 'No se pudo insertar la imagen')
-            pdf.ln(4)
+if st.button("✅ Guardar hallazgo"):
+    if uploaded_file and description.strip():
+        image = Image.open(uploaded_file)
 
-        pdf.set_font('Arial', '', 11)
-        pdf.multi_cell(0, 6, desc)
-
-    out = pdf.output(dest='S').encode('latin-1')
-    return out
-
-init_state()
-st.title('App de Inspecciones (mecánica / eléctrica)')
-
-with st.form(key='main_form'):
-    st.session_state.inspection_type = st.selectbox('Tipo de inspección', 
-                                                    ['Inspección mecánica', 'Inspección eléctrica'], index=0)
-    st.session_state.machine = st.text_input('Identificación de la máquina')
-    st.form_submit_button('Guardar datos básicos')
-
-st.markdown('---')
-st.header('Registrar hallazgo')
-col1, col2 = st.columns([1, 2])
-with col1:
-    image_file = st.camera_input('Tomar foto')
-    file_upload = st.file_uploader('O cargar desde archivos', type=['jpg','jpeg','png'])
-
-with col2:
-    description = st.text_area('Descripción del hallazgo', height=160)
-    if st.button('Agregar hallazgo'):
-        chosen = image_file if image_file is not None else file_upload
-        if chosen is None:
-            st.warning('Debe añadir una imagen')
-        elif not description.strip():
-            st.warning('Debe escribir una descripción')
-        else:
-            add_finding(chosen.getvalue(), description.strip())
-            st.success('Hallazgo agregado')
-
-if st.session_state.findings:
-    st.subheader('Hallazgos registrados')
-    for i, f in enumerate(st.session_state.findings, start=1):
-        cols = st.columns([1, 3])
-        with cols[0]:
-            st.image(f['image'], use_column_width=True)
-        with cols[1]:
-            st.write(f"**Descripción {i}:**\n{f['description']}")
-            if st.button(f'Eliminar {i}'):
-                st.session_state.findings.pop(i-1)
-                st.experimental_rerun()
-
-st.markdown('---')
-st.header('Generar Informe PDF')
-if st.button('Descargar PDF'):
-    if not st.session_state.machine.strip():
-        st.warning('Ingrese la máquina')
-    elif not st.session_state.findings:
-        st.warning('No hay hallazgos')
+        st.session_state.findings.append({
+            "image": image,
+            "description": description,
+            "timestamp": datetime.now()
+        })
+        st.success("Hallazgo guardado")
+        st.rerun()
     else:
-        pdf_bytes = create_pdf(st.session_state.machine, 
-                               st.session_state.inspection_type, 
-                               st.session_state.findings)
-        st.download_button('Descargar Archivo', data=pdf_bytes,
-                           file_name='informe_inspeccion.pdf',
-                           mime='application/pdf')
+        st.warning("⚠️ Debes subir una imagen y escribir una descripción.")
+
+st.divider()
+
+# 🔹 Mostrar hallazgos
+if st.session_state.findings:
+    st.subheader("📌 Hallazgos registrados")
+
+    for i, f in enumerate(st.session_state.findings, start=1):
+        st.write(f"### Hallazgo {i}")
+        st.image(f["image"], use_container_width=True)
+        st.write(f"**Descripción:** {f['description']}")
+        st.caption(f"{f['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
+
+        if st.button(f"🗑️ Eliminar hallazgo {i}"):
+            st.session_state.findings.pop(i-1)
+            st.rerun()
+
+else:
+    st.info("Aún no hay hallazgos registrados.")
+
+st.divider()
+
+# 📄 Función para generar PDF
+def generate_pdf():
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=10)
+
+    # Portada
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(0, 10, "INFORME DE INSPECCIÓN", ln=True, align="C")
+
+    pdf.ln(10)
+    pdf.set_font("Arial", size=12)
+    pdf.cell(0, 10, f"Tipo de inspección: {inspection_type}", ln=True)
+    pdf.cell(0, 10, f"Máquina: {machine_id}", ln=True)
+    pdf.cell(0, 10, f"Fecha de generación: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True)
+
+    # Agregar hallazgos
+    for idx, f in enumerate(st.session_state.findings, start=1):
+        pdf.add_page()
+        pdf.set_font("Arial", "B", 14)
+        pdf.cell(0, 10, f"Hallazgo {idx}", ln=True)
+
+        # Guardar temporal la imagen
+        img_path = f"temp_image_{idx}.jpg"
+        f["image"].save(img_path)
+
+        pdf.ln(5)
+        pdf.image(img_path, w=160)
+        os.remove(img_path)
+
+        pdf.ln(5)
+        pdf.set_font("Arial", size=12)
+        pdf.multi_cell(0, 8, f["description"])
+
+    pdf_path = "Reporte_Inspeccion.pdf"
+    pdf.output(pdf_path)
+    return pdf_path
+
+# Botón para descargar PDF
+if st.session_state.findings and machine_id.strip():
+    if st.button("📥 Generar y Descargar PDF"):
+        file = generate_pdf()
+        with open(file, "rb") as f:
+            st.download_button(
+                label="⬇️ Descargar Informe PDF",
+                data=f,
+                file_name="Reporte_Inspeccion.pdf",
+                mime="application/pdf"
+            )
+else:
+    st.info("Completa los datos y registra hallazgos para generar el PDF")
