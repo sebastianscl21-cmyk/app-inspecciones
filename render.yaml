@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: app-inspecciones
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run inspecciones_app.py --server.port $PORT --server.address 0.0.0.0
