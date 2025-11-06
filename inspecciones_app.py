@@ -22,25 +22,32 @@ machine_id = st.text_input("Identificación de la máquina")
 
 st.divider()
 
-# Subida de imagen
-uploaded_file = st.file_uploader("📸 Imagen del hallazgo", type=["jpg", "jpeg", "png"])
+st.subheader("Registrar nuevo hallazgo")
 
-# Descripción
+# Selección de origen de imagen
+option = st.radio("¿Cómo deseas agregar la foto?", ["📸 Cámara", "📁 Cargar archivo"])
+
+if option == "📸 Cámara":
+    image_file = st.camera_input("Tomar foto")
+else:
+    image_file = st.file_uploader("Seleccionar imagen", type=["jpg", "jpeg", "png"])
+
+# Descripción del hallazgo
 description = st.text_area("✍️ Descripción del hallazgo")
 
 if st.button("✅ Guardar hallazgo"):
-    if uploaded_file and description.strip():
-        image = Image.open(uploaded_file)
+    if image_file and description.strip():
+        image = Image.open(image_file)
 
         st.session_state.findings.append({
             "image": image,
             "description": description,
             "timestamp": datetime.now()
         })
-        st.success("Hallazgo guardado")
+        st.success("Hallazgo guardado ✅")
         st.rerun()
     else:
-        st.warning("⚠️ Debes subir una imagen y escribir una descripción.")
+        st.warning("⚠️ Debes tomar o subir una imagen y escribir una descripción.")
 
 st.divider()
 
@@ -49,10 +56,10 @@ if st.session_state.findings:
     st.subheader("📌 Hallazgos registrados")
 
     for i, f in enumerate(st.session_state.findings, start=1):
-        st.write(f"### Hallazgo {i}")
+        st.markdown(f"### Hallazgo {i}")
         st.image(f["image"], use_container_width=True)
         st.write(f"**Descripción:** {f['description']}")
-        st.caption(f"{f['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
+        st.caption(f"🕒 {f['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
 
         if st.button(f"🗑️ Eliminar hallazgo {i}"):
             st.session_state.findings.pop(i-1)
@@ -77,16 +84,16 @@ def generate_pdf():
     pdf.set_font("Arial", size=12)
     pdf.cell(0, 10, f"Tipo de inspección: {inspection_type}", ln=True)
     pdf.cell(0, 10, f"Máquina: {machine_id}", ln=True)
-    pdf.cell(0, 10, f"Fecha de generación: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True)
+    pdf.cell(0, 10, f"Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True)
 
-    # Agregar hallazgos
+    # Agregar hallazgos al PDF
     for idx, f in enumerate(st.session_state.findings, start=1):
         pdf.add_page()
         pdf.set_font("Arial", "B", 14)
         pdf.cell(0, 10, f"Hallazgo {idx}", ln=True)
 
-        # Guardar temporal la imagen
-        img_path = f"temp_image_{idx}.jpg"
+        # Guardar temporales
+        img_path = f"temp_img_{idx}.jpg"
         f["image"].save(img_path)
 
         pdf.ln(5)
@@ -101,16 +108,16 @@ def generate_pdf():
     pdf.output(pdf_path)
     return pdf_path
 
-# Botón para descargar PDF
+# Botón para generar PDF
 if st.session_state.findings and machine_id.strip():
     if st.button("📥 Generar y Descargar PDF"):
         file = generate_pdf()
         with open(file, "rb") as f:
             st.download_button(
-                label="⬇️ Descargar Informe PDF",
+                "⬇️ Descargar PDF",
                 data=f,
                 file_name="Reporte_Inspeccion.pdf",
                 mime="application/pdf"
             )
 else:
-    st.info("Completa los datos y registra hallazgos para generar el PDF")
+    st.info("Completa los datos y registra hallazgos para generar el PDF.")
