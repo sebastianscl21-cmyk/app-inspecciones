@@ -11,15 +11,10 @@ import uuid
 # ---------------------------
 st.set_page_config(page_title="Inspecciones Técnicas", page_icon="🛠️", layout="centered")
 
-# Suprimir ciertos warnings deprecados de Streamlit
-st.set_option('deprecation.showfileUploaderEncoding', False)
-# (Evitar aviso de use_column_width en versiones antiguas)
-try:
-    st.set_option('deprecation.showImageUseColumnWidth', False)
-except Exception:
-    pass
+# 📌 Eliminar opción deprecada que causaba error en versiones nuevas
+# st.set_option('deprecation.showfileUploaderEncoding', False)
 
-# Constantes (ajusta si quieres)
+# Nombre del PDF de salida
 PDF_OUTPUT_NAME = "Reporte_Inspeccion.pdf"
 
 # ---------------------------
@@ -33,7 +28,7 @@ if "uploader_key_counter" not in st.session_state:
     st.session_state.uploader_key_counter = 0
 
 # ---------------------------
-# Clase PDF (sin emojis en PDF)
+# Clase PDF (sin emojis y diseño limpio)
 # ---------------------------
 class PDF(FPDF):
     def header(self):
@@ -64,7 +59,7 @@ def generate_pdf(inspection_type, machine_id):
     pdf.cell(0, 10, "Informe de Inspección", ln=True, align="C")
     pdf.ln(10)
 
-    # Caja de datos principales
+    # Caja datos generales
     pdf.set_text_color(0)
     add_box(pdf,
         f"Tipo de inspección: {inspection_type}\n"
@@ -72,20 +67,19 @@ def generate_pdf(inspection_type, machine_id):
         f"Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
     )
 
-    # Hallazgos
-    # Para evitar problemas con nombres temporales iguales, creamos temp files y los borramos después.
+    # Páginas de hallazgos
     for idx, f in enumerate(st.session_state.findings, start=1):
         pdf.add_page()
-
         pdf.set_font("Arial", "B", 13)
         pdf.set_text_color(0, 102, 204)
         pdf.cell(0, 10, f"Hallazgo {idx}", ln=True)
 
-        # Imagen: guardar temporal y ponerla
+        # Procesar imagen temporalmente
         try:
             img_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
             temp_path = img_temp.name
             img_temp.close()
+
             img = f["image"]
             if img.mode != "RGB":
                 img = img.convert("RGB")
@@ -94,14 +88,12 @@ def generate_pdf(inspection_type, machine_id):
             pdf.image(temp_path, x=15, w=170)
             os.remove(temp_path)
         except Exception as e:
-            # Si falla la imagen, incluir nota
             pdf.set_font("Arial", "I", 10)
             pdf.set_text_color(150, 0, 0)
             pdf.multi_cell(0, 6, f"(No se pudo incrustar la imagen: {e})")
             pdf.set_text_color(0)
 
         pdf.ln(5)
-        pdf.set_text_color(0)
         pdf.set_font("Arial", "", 11)
         pdf.multi_cell(0, 7, f"Descripción:\n{f['description']}", border=1)
 
@@ -126,11 +118,12 @@ machine_id = st.text_input("Identificación de la máquina")
 st.divider()
 st.subheader("Agregar hallazgo")
 
-# Generar keys dinámicas para camera_input y uploader para evitar errores DOM en móviles
+# 👇 Keys dinámicas: evitan error de repetición en móviles
 cam_key = f"cam_{st.session_state.cam_key_counter}"
 uploader_key = f"up_{st.session_state.uploader_key_counter}"
 
 opt = st.radio("Seleccionar método de imagen:", ["📸 Cámara", "📁 Cargar Archivo"], horizontal=True)
+
 if opt == "📸 Cámara":
     img_input = st.camera_input("Tomar foto", key=cam_key)
 else:
@@ -138,71 +131,55 @@ else:
 
 desc = st.text_area("Descripción del hallazgo", height=150)
 
-# Botón Guardar: al guardar incrementamos los counters para que la cámara/uploader reciban nueva key en la siguiente renderización
 if st.button("Guardar hallazgo"):
     if img_input and desc.strip():
         try:
             pil_img = Image.open(img_input)
-        except Exception as e:
-            st.error(f"No se pudo leer la imagen: {e}")
-            pil_img = None
-
-        if pil_img:
             st.session_state.findings.append({
                 "image": pil_img,
                 "description": desc.strip(),
                 "timestamp": datetime.now()
             })
-            # Incrementar counters para regenerar keys y evitar DOM conflicts posteriores en móviles
             st.session_state.cam_key_counter += 1
             st.session_state.uploader_key_counter += 1
-
-            st.success("Hallazgo guardado correctamente.")
-            # No llamar a st.rerun() — Streamlit recargará por el cambio de session_state automáticamente
+            st.success("✅ Hallazgo guardado.")
+        except Exception as e:
+            st.error(f"No se pudo procesar la imagen: {e}")
     else:
-        st.warning("Por favor, sube o toma una foto y escribe la descripción.")
+        st.warning("📌 Debes subir/tomar imagen y escribir descripción.")
 
 st.divider()
 
-# Listado de hallazgos
+# Lista de hallazgos
 if st.session_state.findings:
     st.subheader("Hallazgos registrados")
-
     for i, f in enumerate(st.session_state.findings, start=1):
         st.markdown(f"**Hallazgo {i}**")
-        # Mostrar imagen en UI con use_container_width para no generar warnings
-        try:
-            st.image(f["image"], use_container_width=True)
-        except Exception:
-            # Fallback: mostrar imagen con display normal
-            st.image(f["image"])
-
+        st.image(f["image"], use_container_width=True)
         st.write(f["description"])
         st.caption(f"{f['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
-
-        # Botón eliminar con key único para evitar comportamiento ambiguo
-        del_key = f"del_{i}_{uuid.uuid4().hex}"
-        if st.button(f"Eliminar {i}", key=del_key):
-            # Eliminar sin llamar a st.rerun(); Streamlit reejecutará naturalmente al cambiar session_state
+        
+        if st.button(f"Eliminar {i}", key=f"del_{i}_{uuid.uuid4().hex}"):
             st.session_state.findings.pop(i - 1)
-            st.success(f"Hallazgo {i} eliminado.")
-            # Actualizar counters también para evitar conflicto de keys en cámara/uploader
             st.session_state.cam_key_counter += 1
             st.session_state.uploader_key_counter += 1
+            st.success("🗑️ Eliminado")
 
 else:
-    st.info("No hay hallazgos registrados aún.")
+    st.info("📌 No hay hallazgos aún.")
 
 st.divider()
 
-# Generar PDF
 if st.session_state.findings and machine_id.strip():
     if st.button("Generar y descargar PDF"):
         try:
-            pdf_file = generate_pdf(inspection_type, machine_id)
-            with open(pdf_file, "rb") as fh:
-                st.download_button("Descargar Informe (PDF)", data=fh, file_name=pdf_file, mime="application/pdf")
+            pdf_path = generate_pdf(inspection_type, machine_id)
+            with open(pdf_path, "rb") as fh:
+                st.download_button("⬇️ Descargar Informe (PDF)",
+                                   data=fh,
+                                   file_name=pdf_path,
+                                   mime="application/pdf")
         except Exception as e:
-            st.error(f"Ocurrió un error generando el PDF: {e}")
+            st.error(f"Error generando PDF: {e}")
 else:
-    st.info("Completa la identificación de la máquina y registra hallazgos para generar el informe.")
+    st.info("🔐 Ingresa máquina y registra al menos un hallazgo.")
