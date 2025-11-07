@@ -13,18 +13,16 @@ if "findings" not in st.session_state:
 
 class PDF(FPDF):
     def header(self):
-        # Título en el encabezado
-        self.set_font("Arial", "B", 12)
-        self.set_text_color(50, 50, 50)
-        self.cell(0, 10, "🔍 Informe de Inspección Técnica", ln=True, align="C")
+        self.set_font("Arial", "B", 14)
+        self.set_text_color(40, 40, 40)
+        self.cell(0, 10, "Informe de Inspección Técnica", ln=True, align="C")
         self.ln(2)
         self.set_draw_color(0, 102, 204)
         self.set_line_width(0.7)
         self.line(10, 22, 200, 22)
-        self.ln(4)
 
 def add_box(pdf, text):
-    pdf.set_fill_color(240, 240, 240)
+    pdf.set_fill_color(245, 245, 245)
     pdf.set_draw_color(200, 200, 200)
     pdf.set_line_width(0.3)
     pdf.set_font("Arial", "", 11)
@@ -34,47 +32,47 @@ def generate_pdf(inspection_type, machine_id):
     pdf = PDF()
     pdf.set_auto_page_break(auto=True, margin=12)
 
-    # 📌 Portada
+    # Portada
     pdf.add_page()
-    pdf.set_font("Arial", "B", 20)
+    pdf.set_font("Arial", "B", 18)
     pdf.set_text_color(0, 102, 204)
     pdf.ln(20)
-    pdf.cell(0, 10, "📋 Informe de Inspección", ln=True, align="C")
+    pdf.cell(0, 10, "Informe de Inspección", ln=True, align="C")
     pdf.ln(10)
 
-    pdf.set_font("Arial", "", 12)
+    # Caja de datos principales
     pdf.set_text_color(0)
-
     add_box(pdf,
-        f"🛠️ Tipo de inspección: {inspection_type}\n"
-        f"🏭 Máquina: {machine_id}\n"
-        f"📅 Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        f"Tipo de inspección: {inspection_type}\n"
+        f"Máquina: {machine_id}\n"
+        f"Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
     )
 
-    # 📌 Hallazgos
+    # Hallazgos
     for idx, f in enumerate(st.session_state.findings, start=1):
         pdf.add_page()
 
-        pdf.set_font("Arial", "B", 14)
+        pdf.set_font("Arial", "B", 13)
         pdf.set_text_color(0, 102, 204)
-        pdf.cell(0, 10, f"✅ Hallazgo {idx}", ln=True)
-
-        pdf.set_text_color(0)
+        pdf.cell(0, 10, f"Hallazgo {idx}", ln=True)
 
         # Imagen
         img_path = f"temp_im_{idx}.jpg"
-        f["image"].save(img_path)
+        img = f["image"].convert("RGB")
+        img.save(img_path)
+
         pdf.image(img_path, x=15, w=170)
         os.remove(img_path)
 
         pdf.ln(5)
+        pdf.set_text_color(0)
         pdf.set_font("Arial", "", 11)
-        pdf.multi_cell(0, 7, f"📝 Descripción:\n{f['description']}", border=1)
+        pdf.multi_cell(0, 7, f"Descripción:\n{f['description']}", border=1)
 
         pdf.ln(3)
         pdf.set_font("Arial", "I", 9)
         pdf.set_text_color(100)
-        pdf.cell(0, 6, f"📌 Registrado el: {f['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}", ln=True)
+        pdf.cell(0, 6, f"Registrado el: {f['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}", ln=True)
 
     pdf_path = "Reporte_Inspeccion.pdf"
     pdf.output(pdf_path)
@@ -103,7 +101,7 @@ if st.button("✅ Guardar Hallazgo"):
             "description": desc,
             "timestamp": datetime.now()
         })
-        st.success("Guardado exitosamente ✅")
+        st.success("Hallazgo guardado ✅")
         st.rerun()
     else:
         st.warning("⚠️ Falta imagen o descripción")
@@ -114,7 +112,7 @@ if st.session_state.findings:
     st.subheader("📂 Hallazgos capturados")
 
     for i, f in enumerate(st.session_state.findings, start=1):
-        st.image(f["image"], use_container_width=True)
+        st.image(f["image"])
         st.write(f"📝 {f['description']}")
         st.caption(f"⏱️ {f['timestamp']}")
         if st.button(f"🗑️ Eliminar {i}"):
