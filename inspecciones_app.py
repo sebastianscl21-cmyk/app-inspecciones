@@ -3,14 +3,38 @@ from PIL import Image
 from datetime import datetime
 from fpdf import FPDF
 import os
+import tempfile
+import uuid
 
-# Configuración de la página
+# ---------------------------
+# Config y opciones
+# ---------------------------
 st.set_page_config(page_title="Inspecciones Técnicas", page_icon="🛠️", layout="centered")
 
-# Inicializar hallazgos
+# Suprimir ciertos warnings deprecados de Streamlit
+st.set_option('deprecation.showfileUploaderEncoding', False)
+# (Evitar aviso de use_column_width en versiones antiguas)
+try:
+    st.set_option('deprecation.showImageUseColumnWidth', False)
+except Exception:
+    pass
+
+# Constantes (ajusta si quieres)
+PDF_OUTPUT_NAME = "Reporte_Inspeccion.pdf"
+
+# ---------------------------
+# Inicializar session_state
+# ---------------------------
 if "findings" not in st.session_state:
     st.session_state.findings = []
+if "cam_key_counter" not in st.session_state:
+    st.session_state.cam_key_counter = 0
+if "uploader_key_counter" not in st.session_state:
+    st.session_state.uploader_key_counter = 0
 
+# ---------------------------
+# Clase PDF (sin emojis en PDF)
+# ---------------------------
 class PDF(FPDF):
     def header(self):
         self.set_font("Arial", "B", 14)
@@ -49,6 +73,7 @@ def generate_pdf(inspection_type, machine_id):
     )
 
     # Hallazgos
+    # Para evitar problemas con nombres temporales iguales, creamos temp files y los borramos después.
     for idx, f in enumerate(st.session_state.findings, start=1):
         pdf.add_page()
 
@@ -56,13 +81,24 @@ def generate_pdf(inspection_type, machine_id):
         pdf.set_text_color(0, 102, 204)
         pdf.cell(0, 10, f"Hallazgo {idx}", ln=True)
 
-        # Imagen
-        img_path = f"temp_im_{idx}.jpg"
-        img = f["image"].convert("RGB")
-        img.save(img_path)
+        # Imagen: guardar temporal y ponerla
+        try:
+            img_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+            temp_path = img_temp.name
+            img_temp.close()
+            img = f["image"]
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            img.save(temp_path, format="JPEG", quality=85)
 
-        pdf.image(img_path, x=15, w=170)
-        os.remove(img_path)
+            pdf.image(temp_path, x=15, w=170)
+            os.remove(temp_path)
+        except Exception as e:
+            # Si falla la imagen, incluir nota
+            pdf.set_font("Arial", "I", 10)
+            pdf.set_text_color(150, 0, 0)
+            pdf.multi_cell(0, 6, f"(No se pudo incrustar la imagen: {e})")
+            pdf.set_text_color(0)
 
         pdf.ln(5)
         pdf.set_text_color(0)
@@ -74,62 +110,99 @@ def generate_pdf(inspection_type, machine_id):
         pdf.set_text_color(100)
         pdf.cell(0, 6, f"Registrado el: {f['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}", ln=True)
 
-    pdf_path = "Reporte_Inspeccion.pdf"
-    pdf.output(pdf_path)
-    return pdf_path
+    # Guardar PDF
+    out_path = PDF_OUTPUT_NAME
+    pdf.output(out_path)
+    return out_path
 
-
+# ---------------------------
 # UI Streamlit
+# ---------------------------
 st.title("🔎 Registro de Inspección")
 
 inspection_type = st.selectbox("Tipo de inspección", ["Mecánica", "Eléctrica"])
 machine_id = st.text_input("Identificación de la máquina")
 
 st.divider()
-st.subheader("Agregar hallazgo 🆕")
+st.subheader("Agregar hallazgo")
 
-# Foto: cámara o upload
-opt = st.radio("Seleccionar método de imagen:", ["📸 Cámara", "📁 Cargar Archivo"])
-img = st.camera_input("Tomar foto") if opt == "📸 Cámara" else st.file_uploader("Subir imagen", ["jpg", "jpeg", "png"])
+# Generar keys dinámicas para camera_input y uploader para evitar errores DOM en móviles
+cam_key = f"cam_{st.session_state.cam_key_counter}"
+uploader_key = f"up_{st.session_state.uploader_key_counter}"
 
-desc = st.text_area("Descripción")
+opt = st.radio("Seleccionar método de imagen:", ["📸 Cámara", "📁 Cargar Archivo"], horizontal=True)
+if opt == "📸 Cámara":
+    img_input = st.camera_input("Tomar foto", key=cam_key)
+else:
+    img_input = st.file_uploader("Subir imagen", type=["jpg", "jpeg", "png"], key=uploader_key)
 
-if st.button("✅ Guardar Hallazgo"):
-    if img and desc.strip():
-        st.session_state.findings.append({
-            "image": Image.open(img),
-            "description": desc,
-            "timestamp": datetime.now()
-        })
-        st.success("Hallazgo guardado ✅")
-        st.rerun()
+desc = st.text_area("Descripción del hallazgo", height=150)
+
+# Botón Guardar: al guardar incrementamos los counters para que la cámara/uploader reciban nueva key en la siguiente renderización
+if st.button("Guardar hallazgo"):
+    if img_input and desc.strip():
+        try:
+            pil_img = Image.open(img_input)
+        except Exception as e:
+            st.error(f"No se pudo leer la imagen: {e}")
+            pil_img = None
+
+        if pil_img:
+            st.session_state.findings.append({
+                "image": pil_img,
+                "description": desc.strip(),
+                "timestamp": datetime.now()
+            })
+            # Incrementar counters para regenerar keys y evitar DOM conflicts posteriores en móviles
+            st.session_state.cam_key_counter += 1
+            st.session_state.uploader_key_counter += 1
+
+            st.success("Hallazgo guardado correctamente.")
+            # No llamar a st.rerun() — Streamlit recargará por el cambio de session_state automáticamente
     else:
-        st.warning("⚠️ Falta imagen o descripción")
+        st.warning("Por favor, sube o toma una foto y escribe la descripción.")
 
 st.divider()
 
+# Listado de hallazgos
 if st.session_state.findings:
-    st.subheader("📂 Hallazgos capturados")
+    st.subheader("Hallazgos registrados")
 
     for i, f in enumerate(st.session_state.findings, start=1):
-        st.image(f["image"])
-        st.write(f"📝 {f['description']}")
-        st.caption(f"⏱️ {f['timestamp']}")
-        if st.button(f"🗑️ Eliminar {i}"):
-            st.session_state.findings.pop(i-1)
-            st.rerun()
+        st.markdown(f"**Hallazgo {i}**")
+        # Mostrar imagen en UI con use_container_width para no generar warnings
+        try:
+            st.image(f["image"], use_container_width=True)
+        except Exception:
+            # Fallback: mostrar imagen con display normal
+            st.image(f["image"])
+
+        st.write(f["description"])
+        st.caption(f"{f['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
+
+        # Botón eliminar con key único para evitar comportamiento ambiguo
+        del_key = f"del_{i}_{uuid.uuid4().hex}"
+        if st.button(f"Eliminar {i}", key=del_key):
+            # Eliminar sin llamar a st.rerun(); Streamlit reejecutará naturalmente al cambiar session_state
+            st.session_state.findings.pop(i - 1)
+            st.success(f"Hallazgo {i} eliminado.")
+            # Actualizar counters también para evitar conflicto de keys en cámara/uploader
+            st.session_state.cam_key_counter += 1
+            st.session_state.uploader_key_counter += 1
+
 else:
-    st.info("Sin hallazgos aún")
+    st.info("No hay hallazgos registrados aún.")
 
 st.divider()
 
+# Generar PDF
 if st.session_state.findings and machine_id.strip():
-    if st.button("📥 Generar PDF"):
-        file = generate_pdf(inspection_type, machine_id)
-        with open(file, "rb") as f:
-            st.download_button("⬇️ Descargar PDF",
-                               data=f,
-                               file_name="Reporte_Inspeccion.pdf",
-                               mime="application/pdf")
+    if st.button("Generar y descargar PDF"):
+        try:
+            pdf_file = generate_pdf(inspection_type, machine_id)
+            with open(pdf_file, "rb") as fh:
+                st.download_button("Descargar Informe (PDF)", data=fh, file_name=pdf_file, mime="application/pdf")
+        except Exception as e:
+            st.error(f"Ocurrió un error generando el PDF: {e}")
 else:
-    st.info("Completa la máquina y agrega hallazgos para generar el informe 📄")
+    st.info("Completa la identificación de la máquina y registra hallazgos para generar el informe.")
